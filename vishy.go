@@ -1,19 +1,10 @@
 package vishycore
 
 import (
-	"unicode"
+	"errors"
 )
 
-type Square string
-type Piece rune
-
-type Turn int
-
-const (
-	WhiteTurn Turn = iota
-	BlackTurn
-)
-
+type Board [12][12]int
 type Color int
 
 const (
@@ -21,96 +12,189 @@ const (
 	Black
 )
 
-type BoardState struct {
-	Board                       [8][8]Piece
-	Turn                        Turn
-	EnPassantTargetSquare       Square
-	IsBlackQSideCastleAvailable bool
-	IsWhiteQSideCastleAvailable bool
-	IsBlackKSideCastleAvailable bool
-	IsWhiteKSideCastleAvailable bool
-	HalfMoves                   int
-	FullMoves                   int
+type Pos struct {
+	rank int
+	file int
 }
 
-func CreateNewBoard() BoardState {
-	boardState := BoardState{
-		IsBlackQSideCastleAvailable: true,
-		IsWhiteQSideCastleAvailable: true,
-		IsBlackKSideCastleAvailable: true,
-		IsWhiteKSideCastleAvailable: true,
-		EnPassantTargetSquare:       "-",
-		HalfMoves:                   0,
-		FullMoves:                   1,
-		Turn:                        WhiteTurn,
-		Board: [8][8]Piece{
-			[8]Piece{'r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'},
-			[8]Piece{'p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'},
-			[8]Piece{},
-			[8]Piece{},
-			[8]Piece{},
-			[8]Piece{},
-			[8]Piece{'P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'},
-			[8]Piece{'R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'},
-		},
+func NewBoard() Board {
+	return [12][12]int{[12]int{99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99},
+		[12]int{99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99},
+		[12]int{99, 99, 1, 2, 3, 4, 5, 3, 2, 1, 99, 99},
+		[12]int{99, 99, 6, 6, 6, 6, 6, 6, 6, 6, 99, 99},
+		[12]int{99, 99, 0, 0, 0, 0, 0, 0, 0, 0, 99, 99},
+		[12]int{99, 99, 0, 0, 0, 0, 0, 0, 0, 0, 99, 99},
+		[12]int{99, 99, 0, 0, 0, 0, 0, 0, 0, 0, 99, 99},
+		[12]int{99, 99, 0, 0, 0, 0, 0, 0, 0, 0, 99, 99},
+		[12]int{99, 99, 7, 7, 7, 7, 7, 7, 7, 7, 99, 99},
+		[12]int{99, 99, 8, 9, 10, 11, 12, 10, 9, 8, 99, 99},
+		[12]int{99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99},
+		[12]int{99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99},
 	}
-	return boardState
 }
 
-func IsKingInCheck(boardState BoardState, kingColor Color) bool {
-	var king Piece
-	switch kingColor {
-	case White:
-		king = 'k'
-	case Black:
-		king = 'K'
+func (b Board) IsKingInCheck(kingColor Color) bool {
+	var king, enemyQueen, enemyRook, enemyPawn, enemyBishop, enemyKnight int
+	if kingColor == White {
+		king = 4
+		enemyQueen = 12
+		enemyRook = 8
+		enemyBishop = 10
+		enemyPawn = 7
+		enemyKnight = 9
+
+	} else {
+		king = 11
+		enemyQueen = 5
+		enemyRook = 1
+		enemyPawn = 6
+		enemyBishop = 3
+		enemyKnight = 2
 	}
 
-	//Searching the king, need a better implementation instead of searching for him
-	var i, j int
-	for i = 0; i < 8; i++ {
-		for j = 0; j < 8; j++ {
-			if boardState.Board[i][j] == king {
-				break
-			}
-		}
+	pos, err := findPiecePos(king, b)
+	if err != nil {
+		panic(err)
 	}
 
-	checkPath := func(k int, l int, pieceType []Piece) bool {
-		piece := boardState.Board[k][l]
-		if piece != 0 {
-			var pieceColor Color
-			if unicode.IsLower(rune(piece)) {
-				pieceColor = Black
-			} else {
-				pieceColor = White
-			}
-
-			if pieceColor != kingColor {
-				piecesLength := len(pieceType)
-				for i := 0; i < piecesLength; i++ {
-					if piece == pieceType[i] {
-						return true
-					}
-				}
-			}
-		}
-		return false
+	//check for pawn check
+	if (kingColor == White && (b[pos.rank+1][pos.file-1] == enemyPawn || b[pos.rank+1][pos.file+1] == enemyPawn)) || (kingColor == Black && (b[pos.rank-1][pos.file-1] == enemyPawn || b[pos.rank-1][pos.file+1] == enemyPawn)) {
+		return true
 	}
 
-	//look for attackers up the board
-	for k := i + 1; k < 8; k++ {
-		if checkPath(k, j, []Piece{'q', 'r'}) {
+	var i, piece int
+	i = pos.rank + 1
+
+	//go up the board
+	for {
+		piece = b[i][pos.file]
+		if piece == 99 {
+			break
+		} else if piece == enemyQueen || piece == enemyRook {
 			return true
+		} else if piece != 0 {
+			break
 		}
+		i++
 	}
 
-	//look for attackers down the board
-	for l := i - 1; l >= 0; l-- {
-		if checkPath(l, j, []Piece{'q', 'r'}) {
+	//go down the board
+	i = pos.rank - 1
+	for {
+		piece = b[i][pos.file]
+		if piece == 99 {
+			break
+		} else if piece == enemyQueen || piece == enemyRook {
 			return true
+		} else if piece != 0 {
+			break
 		}
+		i--
 	}
 
+	//go right
+	i = pos.file - 1
+	for {
+		piece = b[pos.rank][i]
+		if piece == 99 {
+			break
+		} else if piece == enemyQueen || piece == enemyRook {
+			return true
+		} else if piece != 0 {
+			break
+		}
+		i--
+	}
+
+	//go left
+	i = pos.file + 1
+	for {
+		piece = b[pos.rank][i]
+		if piece == 99 {
+			break
+		} else if piece == enemyQueen || piece == enemyRook {
+			return true
+		} else if piece != 0 {
+			break
+		}
+		i++
+	}
+
+	//top right
+	i, j := pos.rank+1, pos.file-1
+	for {
+		piece = b[i][j]
+		if piece == 99 {
+			break
+		} else if piece == enemyBishop || piece == enemyQueen {
+			return true
+		} else if piece != 0 {
+			break
+		}
+		i++
+		j--
+	}
+
+	//top left
+	i, j = pos.rank+1, pos.file+1
+	for {
+		piece = b[i][j]
+		if piece == 99 {
+			break
+		} else if piece == enemyBishop || piece == enemyQueen {
+			return true
+		} else if piece != 0 {
+			break
+		}
+		i++
+		j++
+	}
+
+	//bottom left
+	i, j = pos.rank-1, pos.file+1
+	for {
+		piece = b[i][j]
+		if piece == 99 {
+			break
+		} else if piece == enemyBishop || piece == enemyQueen {
+			return true
+		} else if piece != 0 {
+			break
+		}
+		i--
+		j++
+	}
+
+	//bottom right
+	i, j = pos.rank-1, pos.file-1
+	for {
+		piece = b[i][j]
+		if piece == 99 {
+			break
+		} else if piece == enemyBishop || piece == enemyQueen {
+			return true
+		} else if piece != 0 {
+			break
+		}
+		i--
+		j--
+	}
+
+	//move like a knight
+	i, j = pos.rank, pos.file
+	if b[i+2][j-1] == enemyKnight || b[i+2][j+1] == enemyKnight || b[i-2][j-1] == enemyKnight || b[i-2][j+1] == enemyKnight {
+		return true
+	}
 	return false
+}
+
+func findPiecePos(piece int, b Board) (Pos, error) {
+	for i := 2; i < 10; i++ {
+		for j := 2; j < 10; j++ {
+			if b[i][j] == piece {
+				return Pos{rank: i, file: j}, nil
+			}
+		}
+	}
+	return Pos{}, errors.New("Piece not found")
 }
