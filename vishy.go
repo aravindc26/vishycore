@@ -14,8 +14,8 @@ const (
 )
 
 type Pos struct {
-	rank int
-	file int
+	x int
+	y int
 }
 
 var pieceMap = map[rune]int{
@@ -48,6 +48,57 @@ func NewBoard() Board {
 		[12]int{99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99},
 		[12]int{99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99},
 	}
+}
+
+func getPos(algebNotation string) (Pos, error) {
+	file, rank := algebNotation[0], algebNotation[1]
+
+	pos := Pos{}
+
+	switch file {
+	case 'a':
+		pos.y = 9
+	case 'b':
+		pos.y = 8
+	case 'c':
+		pos.y = 7
+	case 'd':
+		pos.y = 6
+	case 'e':
+		pos.y = 5
+	case 'f':
+		pos.y = 4
+	case 'g':
+		pos.y = 3
+	case 'h':
+		pos.y = 2
+	default:
+		return pos, errors.New("Invalid algebraic notation")
+
+	}
+
+	switch rank {
+	case '1':
+		pos.x = 2
+	case '2':
+		pos.x = 3
+	case '3':
+		pos.x = 4
+	case '4':
+		pos.x = 5
+	case '5':
+		pos.x = 6
+	case '6':
+		pos.x = 7
+	case '7':
+		pos.x = 8
+	case '8':
+		pos.x = 9
+	default:
+		return pos, errors.New("Invalid algebraic notation")
+	}
+
+	return pos, nil
 }
 
 func CreateBoardFromFen(fen string) (Board, error) {
@@ -113,15 +164,17 @@ func CreateBoardFromFen(fen string) (Board, error) {
 		}
 	}
 
+	j := 0
+	var i int
+	//Now I realize the power of closures ;)
+	fillEmptySpaces := func(x int) {
+		for ; j < x; j++ {
+			board[9-i][9-j] = 0
+		}
+	}
+
 	//place pieces on the board
 	for i, rank := range ranks {
-		j := 0
-		//Now I realize the power of closures ;)
-		fillEmptySpaces := func(x int) {
-			for ; j < x; j++ {
-				board[9-i][9-j] = 0
-			}
-		}
 		for _, runeVal := range rank {
 			switch runeVal {
 			case '8':
@@ -188,17 +241,17 @@ func CreateBoardFromFen(fen string) (Board, error) {
 				}
 				encounter['K'] = true
 			case 'Q':
-				if board[2][5] != pieceMap['K'] || board[2][9] != pieceMap['R'] {
+				if encounter['Q'] || board[2][5] != pieceMap['K'] || board[2][9] != pieceMap['R'] {
 					return board, errors.New("Invalid FEN")
 				}
 				encounter['Q'] = true
 			case 'k':
-				if board[9][5] != pieceMap['k'] || board[9][2] != pieceMap['r'] {
+				if encounter['k'] || board[9][5] != pieceMap['k'] || board[9][2] != pieceMap['r'] {
 					return board, errors.New("Invalid FEN")
 				}
 				encounter['k'] = true
 			case 'q':
-				if board[9][5] != pieceMap['k'] || board[9][9] != pieceMap['r'] {
+				if encounter['q'] || board[9][5] != pieceMap['k'] || board[9][9] != pieceMap['r'] {
 					return board, errors.New("Invalid FEN")
 				}
 				encounter['q'] = true
@@ -209,6 +262,83 @@ func CreateBoardFromFen(fen string) (Board, error) {
 	} else {
 		return board, errors.New("Invalid FEN")
 	}
+
+	/*
+		<En passant target square> ::= '-' | <epsquare>
+		<epsquare>   ::= <fileLetter> <eprank>
+		<fileLetter> ::= 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h'
+		<eprank>     ::= '3' | '6'
+	*/
+
+	enPassantTargetSquare := components[3]
+	eLength := len(enPassantTargetSquare)
+
+	if eLength == 1 {
+		if enPassantTargetSquare[0] != '-' {
+			return board, errors.New("Invalid FEN")
+		}
+	} else if eLength == 2 {
+		f1, f2 := false, false
+		validate := func(algNotation string, pawnType rune) bool {
+			pos, err := getPos(algNotation)
+			if err != nil || board[pos.x][pos.y] != pieceMap[pawnType] {
+				return true
+			}
+			return false
+		}
+		switch enPassantTargetSquare {
+		case "a3":
+			f1 = validate("b4", 'p')
+		case "b3":
+			f1 = validate("a4", 'p')
+			f2 = validate("c4", 'p')
+		case "c3":
+			f1 = validate("b4", 'p')
+			f2 = validate("d4", 'p')
+		case "d3":
+			f1 = validate("c4", 'p')
+			f2 = validate("e4", 'p')
+		case "e3":
+			f1 = validate("d4", 'p')
+			f2 = validate("f4", 'p')
+		case "f3":
+			f1 = validate("e4", 'p')
+			f2 = validate("f4", 'p')
+		case "g3":
+			f1 = validate("f4", 'p')
+			f2 = validate("h4", 'p')
+		case "a6":
+			f1 = validate("b5", 'p')
+		case "b6":
+			f1 = validate("a5", 'P')
+			f2 = validate("c5", 'P')
+		case "c6":
+			f1 = validate("b5", 'P')
+			f2 = validate("d5", 'P')
+		case "d6":
+			f1 = validate("c5", 'P')
+			f2 = validate("e5", 'P')
+		case "e6":
+			f1 = validate("d5", 'P')
+			f2 = validate("f5", 'P')
+		case "f6":
+			f1 = validate("e5", 'P')
+			f2 = validate("g5", 'P')
+		case "g6":
+			f1 = validate("f5", 'P')
+			f2 = validate("h5", 'P')
+		case "h6":
+			f1 = validate("g5", 'P')
+		default:
+			f1, f2 = true, true
+		}
+		if f1 || f2 {
+			return board, errors.New("Invalid FEN")
+		}
+	} else {
+		return board, errors.New("Invalid FEN")
+	}
+
 	return board, nil
 }
 
@@ -237,16 +367,16 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 	}
 
 	//check for pawn check
-	if (kingColor == White && (b[pos.rank+1][pos.file-1] == enemyPawn || b[pos.rank+1][pos.file+1] == enemyPawn)) || (kingColor == Black && (b[pos.rank-1][pos.file-1] == enemyPawn || b[pos.rank-1][pos.file+1] == enemyPawn)) {
+	if (kingColor == White && (b[pos.x+1][pos.y-1] == enemyPawn || b[pos.x+1][pos.y+1] == enemyPawn)) || (kingColor == Black && (b[pos.x-1][pos.y-1] == enemyPawn || b[pos.x-1][pos.y+1] == enemyPawn)) {
 		return true
 	}
 
 	var i, piece int
-	i = pos.rank + 1
+	i = pos.x + 1
 
 	//go up the board
 	for {
-		piece = b[i][pos.file]
+		piece = b[i][pos.y]
 		if piece == 99 {
 			break
 		} else if piece == enemyQueen || piece == enemyRook {
@@ -258,9 +388,9 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 	}
 
 	//go down the board
-	i = pos.rank - 1
+	i = pos.x - 1
 	for {
-		piece = b[i][pos.file]
+		piece = b[i][pos.y]
 		if piece == 99 {
 			break
 		} else if piece == enemyQueen || piece == enemyRook {
@@ -272,9 +402,9 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 	}
 
 	//go right
-	i = pos.file - 1
+	i = pos.y - 1
 	for {
-		piece = b[pos.rank][i]
+		piece = b[pos.x][i]
 		if piece == 99 {
 			break
 		} else if piece == enemyQueen || piece == enemyRook {
@@ -286,9 +416,9 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 	}
 
 	//go left
-	i = pos.file + 1
+	i = pos.y + 1
 	for {
-		piece = b[pos.rank][i]
+		piece = b[pos.x][i]
 		if piece == 99 {
 			break
 		} else if piece == enemyQueen || piece == enemyRook {
@@ -300,7 +430,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 	}
 
 	//top right
-	i, j := pos.rank+1, pos.file-1
+	i, j := pos.x+1, pos.y-1
 	for {
 		piece = b[i][j]
 		if piece == 99 {
@@ -315,7 +445,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 	}
 
 	//top left
-	i, j = pos.rank+1, pos.file+1
+	i, j = pos.x+1, pos.y+1
 	for {
 		piece = b[i][j]
 		if piece == 99 {
@@ -330,7 +460,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 	}
 
 	//bottom left
-	i, j = pos.rank-1, pos.file+1
+	i, j = pos.x-1, pos.y+1
 	for {
 		piece = b[i][j]
 		if piece == 99 {
@@ -345,7 +475,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 	}
 
 	//bottom right
-	i, j = pos.rank-1, pos.file-1
+	i, j = pos.x-1, pos.y-1
 	for {
 		piece = b[i][j]
 		if piece == 99 {
@@ -360,7 +490,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 	}
 
 	//move like a knight
-	i, j = pos.rank, pos.file
+	i, j = pos.x, pos.y
 	if b[i+2][j-1] == enemyKnight || b[i+2][j+1] == enemyKnight || b[i-2][j-1] == enemyKnight || b[i-2][j+1] == enemyKnight {
 		return true
 	}
@@ -371,7 +501,7 @@ func findPiecePos(piece int, b Board) (Pos, error) {
 	for i := 2; i < 10; i++ {
 		for j := 2; j < 10; j++ {
 			if b[i][j] == piece {
-				return Pos{rank: i, file: j}, nil
+				return Pos{x: i, y: j}, nil
 			}
 		}
 	}
