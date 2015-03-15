@@ -3,6 +3,7 @@ package vishycore
 import (
 	"errors"
 	"strings"
+	"unicode"
 )
 
 type Board [12][12]int
@@ -339,6 +340,45 @@ func CreateBoardFromFen(fen string) (Board, error) {
 		return board, errors.New("Invalid FEN")
 	}
 
+	/*
+		<Halfmove Clock> ::= <digit> {<digit>}
+		<digit> ::= '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+	*/
+	halfMoveClock := components[4]
+	if len(halfMoveClock) < 1 {
+		return board, errors.New("Invalid FEN")
+	} else {
+		for _, val := range halfMoveClock {
+			if !unicode.IsDigit(val) {
+				return board, errors.New("Invalid FEN")
+			}
+		}
+	}
+
+	/*
+		<Fullmove counter> ::= <digit19> {<digit>}
+		<digit19> ::= '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+		<digit>   ::= '0' | <digit19>
+	*/
+
+	fullMoveCounter := components[5]
+	fLength := len(fullMoveCounter)
+
+	if fLength < 1 {
+		return board, errors.New("Invalid FEN")
+	}
+	switch fullMoveCounter[0] {
+	case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+	default:
+		return board, errors.New("Invalid FEN")
+	}
+	for _, val := range fullMoveCounter[1:] {
+		switch val {
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		default:
+			return board, errors.New("Invalid FEN")
+		}
+	}
 	return board, nil
 }
 
