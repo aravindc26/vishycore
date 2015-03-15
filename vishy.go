@@ -97,18 +97,16 @@ func NewBoardStateFromFen(fen string) (BoardState, error) {
 		}
 	}
 
-	j := 0
-	var i int
-	//Now I realize the power of closures ;)
-	fillEmptySpaces := func(x int) {
-		for ; j < x; j++ {
-			board[9-i][9-j] = 0
-		}
-	}
-
 	//place pieces on the board
 	for i, rank := range ranks {
+		j := 0
 		for _, runeVal := range rank {
+			//Now I realize the power of closures ;)
+			fillEmptySpaces := func(x int) {
+				for ; j < x; j++ {
+					board[9-i][9-j] = 0
+				}
+			}
 			switch runeVal {
 			case '8':
 				fillEmptySpaces(8)
@@ -140,7 +138,7 @@ func NewBoardStateFromFen(fen string) (BoardState, error) {
 	sideToMove := components[1]
 	if len(sideToMove) != 1 {
 		return throwError()
-	} else if side := sideToMove[0]; side != 'w' || side != 'b' {
+	} else if side := sideToMove[0]; side != 'w' && side != 'b' {
 		return throwError()
 	} else if isBlackKingInCheck := IsKingInCheck(Black, board); side == 'w' && isBlackKingInCheck {
 		return throwError()
