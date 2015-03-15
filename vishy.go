@@ -2,12 +2,328 @@ package vishycore
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"unicode"
 )
 
 type Board [12][12]int
 type Color int
+
+type BoardState struct {
+	board                 Board
+	sideToMove            rune
+	castlingAbility       string
+	enPassantTargetSquare string
+	halfMoveClock         int
+	fullMoveCounter       int
+}
+
+func NewBoardState() BoardState {
+	return BoardState{
+		board:                 NewBoard(),
+		sideToMove:            'w',
+		castlingAbility:       "KQkq",
+		enPassantTargetSquare: "-",
+		halfMoveClock:         0,
+		fullMoveCounter:       1,
+	}
+}
+
+func NewBoardStateFromFen(fen string) (BoardState, error) {
+	var boardState BoardState
+	throwError := func() (BoardState, error) {
+		return NewBoardState(), errors.New("Invalid FEN")
+	}
+	board := NewBoard()
+	/*
+			<FEN> ::=  <Piece Placement>
+		       ' ' <Side to move>
+		       ' ' <Castling ability>
+		       ' ' <En passant target square>
+		       ' ' <Halfmove clock>
+		       ' ' <Fullmove counter>
+	*/
+	fen = strings.Trim(fen, " ")
+	components := strings.Split(fen, " ")
+
+	if len(components) != 6 {
+		return throwError()
+	}
+
+	/*
+		<Piece Placement> ::= <rank8>'/'<rank7>'/'<rank6>'/'<rank5>'/'<rank4>'/'<rank3>'/'<rank2>'/'<rank1>
+	*/
+	piecePlacement := components[0]
+	ranks := strings.Split(piecePlacement, "/")
+	if len(ranks) != 8 {
+		return throwError()
+	}
+	/*
+		<ranki>       ::= [<digit17>]<piece> {[<digit17>]<piece>} [<digit17>] | '8'
+		<piece>       ::= <white Piece> | <black Piece>
+		<digit17>     ::= '1' | '2' | '3' | '4' | '5' | '6' | '7'
+		<white Piece> ::= 'P' | 'N' | 'B' | 'R' | 'Q' | 'K'
+		<black Piece> ::= 'p' | 'n' | 'b' | 'r' | 'q' | 'k'
+	*/
+	for _, rank := range ranks {
+		var sum int
+		for _, runeVal := range rank {
+			if sum > 8 {
+				return throwError()
+			}
+			switch runeVal {
+			case '8':
+				if len(rank) != 1 {
+					return throwError()
+				}
+			case '7':
+				sum += 7
+			case '6':
+				sum += 6
+			case '5':
+				sum += 5
+			case '4':
+				sum += 4
+			case '3':
+				sum += 3
+			case '2':
+				sum += 2
+			case '1', 'r', 'n', 'b', 'k', 'q', 'p', 'R', 'N', 'B', 'K', 'Q', 'P':
+				sum += 1
+			default:
+				return throwError()
+			}
+		}
+	}
+
+	j := 0
+	var i int
+	//Now I realize the power of closures ;)
+	fillEmptySpaces := func(x int) {
+		for ; j < x; j++ {
+			board[9-i][9-j] = 0
+		}
+	}
+
+	//place pieces on the board
+	for i, rank := range ranks {
+		for _, runeVal := range rank {
+			switch runeVal {
+			case '8':
+				fillEmptySpaces(8)
+			case '7':
+				fillEmptySpaces(7)
+			case '6':
+				fillEmptySpaces(6)
+			case '5':
+				fillEmptySpaces(5)
+			case '4':
+				fillEmptySpaces(4)
+			case '3':
+				fillEmptySpaces(3)
+			case '2':
+				fillEmptySpaces(2)
+			case '1':
+				fillEmptySpaces(1)
+			default:
+				board[9-i][9-j] = pieceMap[runeVal]
+				j++
+			}
+		}
+	}
+
+	/*
+		<Side to move> ::= {'w' | 'b'}
+	*/
+
+	sideToMove := components[1]
+	if len(sideToMove) != 1 {
+		return throwError()
+	} else if side := sideToMove[0]; side != 'w' || side != 'b' {
+		return throwError()
+	} else if isBlackKingInCheck := IsKingInCheck(Black, board); side == 'w' && isBlackKingInCheck {
+		return throwError()
+	} else if isWhiteKingInCheck := IsKingInCheck(White, board); side == 'b' && isWhiteKingInCheck {
+		return throwError()
+	} else if isWhiteKingInCheck && isBlackKingInCheck {
+		return throwError()
+	}
+
+	/*
+		<Castling ability> ::= '-' | ['K'] ['Q'] ['k'] ['q'] (1..4)
+	*/
+	castlingAbility := components[2]
+
+	if cLength := len(castlingAbility); cLength >= 1 && cLength <= 4 {
+		encounter := map[rune]bool{
+			'k': false,
+			'K': false,
+			'q': false,
+			'Q': false,
+		}
+		for _, val := range castlingAbility {
+			switch val {
+			case '_':
+				if cLength != 1 {
+					return throwError()
+				}
+			case 'K':
+				if encounter['K'] || board[2][5] != pieceMap['K'] || board[2][2] != pieceMap['R'] {
+					return throwError()
+				}
+				encounter['K'] = true
+			case 'Q':
+				if encounter['Q'] || board[2][5] != pieceMap['K'] || board[2][9] != pieceMap['R'] {
+					return throwError()
+				}
+				encounter['Q'] = true
+			case 'k':
+				if encounter['k'] || board[9][5] != pieceMap['k'] || board[9][2] != pieceMap['r'] {
+					return throwError()
+				}
+				encounter['k'] = true
+			case 'q':
+				if encounter['q'] || board[9][5] != pieceMap['k'] || board[9][9] != pieceMap['r'] {
+					return throwError()
+				}
+				encounter['q'] = true
+			default:
+				return throwError()
+			}
+		}
+	} else {
+		return throwError()
+	}
+
+	/*
+		<En passant target square> ::= '-' | <epsquare>
+		<epsquare>   ::= <fileLetter> <eprank>
+		<fileLetter> ::= 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h'
+		<eprank>     ::= '3' | '6'
+	*/
+
+	enPassantTargetSquare := components[3]
+	eLength := len(enPassantTargetSquare)
+
+	if eLength == 1 {
+		if enPassantTargetSquare[0] != '-' {
+			return throwError()
+		}
+	} else if eLength == 2 {
+		f1, f2 := false, false
+		validate := func(algNotation string, pawnType rune) bool {
+			pos, err := getPos(algNotation)
+			if err != nil || board[pos.x][pos.y] != pieceMap[pawnType] {
+				return true
+			}
+			return false
+		}
+		switch enPassantTargetSquare {
+		case "a3":
+			f1 = validate("b4", 'p')
+		case "b3":
+			f1 = validate("a4", 'p')
+			f2 = validate("c4", 'p')
+		case "c3":
+			f1 = validate("b4", 'p')
+			f2 = validate("d4", 'p')
+		case "d3":
+			f1 = validate("c4", 'p')
+			f2 = validate("e4", 'p')
+		case "e3":
+			f1 = validate("d4", 'p')
+			f2 = validate("f4", 'p')
+		case "f3":
+			f1 = validate("e4", 'p')
+			f2 = validate("f4", 'p')
+		case "g3":
+			f1 = validate("f4", 'p')
+			f2 = validate("h4", 'p')
+		case "a6":
+			f1 = validate("b5", 'p')
+		case "b6":
+			f1 = validate("a5", 'P')
+			f2 = validate("c5", 'P')
+		case "c6":
+			f1 = validate("b5", 'P')
+			f2 = validate("d5", 'P')
+		case "d6":
+			f1 = validate("c5", 'P')
+			f2 = validate("e5", 'P')
+		case "e6":
+			f1 = validate("d5", 'P')
+			f2 = validate("f5", 'P')
+		case "f6":
+			f1 = validate("e5", 'P')
+			f2 = validate("g5", 'P')
+		case "g6":
+			f1 = validate("f5", 'P')
+			f2 = validate("h5", 'P')
+		case "h6":
+			f1 = validate("g5", 'P')
+		default:
+			f1, f2 = true, true
+		}
+		if f1 || f2 {
+			return throwError()
+		}
+	} else {
+		return throwError()
+	}
+
+	/*
+		<Halfmove Clock> ::= <digit> {<digit>}
+		<digit> ::= '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+	*/
+	halfMoveClock := components[4]
+	if len(halfMoveClock) < 1 {
+		return throwError()
+	} else {
+		for _, val := range halfMoveClock {
+			if !unicode.IsDigit(val) {
+				return throwError()
+			}
+		}
+	}
+
+	/*
+		<Fullmove counter> ::= <digit19> {<digit>}
+		<digit19> ::= '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
+		<digit>   ::= '0' | <digit19>
+	*/
+
+	fullMoveCounter := components[5]
+	fLength := len(fullMoveCounter)
+
+	if fLength < 1 {
+		return throwError()
+	}
+	switch fullMoveCounter[0] {
+	case '1', '2', '3', '4', '5', '6', '7', '8', '9':
+	default:
+		return throwError()
+	}
+	for _, val := range fullMoveCounter[1:] {
+		switch val {
+		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+		default:
+			return throwError()
+		}
+	}
+	halfMoveClockInt, _ := strconv.Atoi(halfMoveClock)
+	fullMoveCounterInt, _ := strconv.Atoi(fullMoveCounter)
+
+	boardState = BoardState{
+		board:                 board,
+		sideToMove:            rune(sideToMove[0]),
+		castlingAbility:       castlingAbility,
+		enPassantTargetSquare: enPassantTargetSquare,
+		halfMoveClock:         halfMoveClockInt,
+		fullMoveCounter:       fullMoveCounterInt,
+	}
+	return boardState, nil
+}
 
 const (
 	White Color = iota
@@ -101,304 +417,23 @@ func getPos(algebNotation string) (Pos, error) {
 
 	return pos, nil
 }
-
-func CreateBoardFromFen(fen string) (Board, error) {
-	board := NewBoard()
-	/*
-			<FEN> ::=  <Piece Placement>
-		       ' ' <Side to move>
-		       ' ' <Castling ability>
-		       ' ' <En passant target square>
-		       ' ' <Halfmove clock>
-		       ' ' <Fullmove counter>
-	*/
-	fen = strings.Trim(fen, " ")
-	components := strings.Split(fen, " ")
-
-	if len(components) != 6 {
-		return board, errors.New("Invalid FEN")
-	}
-
-	/*
-		<Piece Placement> ::= <rank8>'/'<rank7>'/'<rank6>'/'<rank5>'/'<rank4>'/'<rank3>'/'<rank2>'/'<rank1>
-	*/
-	piecePlacement := components[0]
-	ranks := strings.Split(piecePlacement, "/")
-	if len(ranks) != 8 {
-		return board, errors.New("Invalid FEN")
-	}
-	/*
-		<ranki>       ::= [<digit17>]<piece> {[<digit17>]<piece>} [<digit17>] | '8'
-		<piece>       ::= <white Piece> | <black Piece>
-		<digit17>     ::= '1' | '2' | '3' | '4' | '5' | '6' | '7'
-		<white Piece> ::= 'P' | 'N' | 'B' | 'R' | 'Q' | 'K'
-		<black Piece> ::= 'p' | 'n' | 'b' | 'r' | 'q' | 'k'
-	*/
-	for _, rank := range ranks {
-		var sum int
-		for _, runeVal := range rank {
-			if sum > 8 {
-				return board, errors.New("Invalid FEN")
-			}
-			switch runeVal {
-			case '8':
-				if len(rank) != 1 {
-					return board, errors.New("Invalid FEN")
-				}
-			case '7':
-				sum += 7
-			case '6':
-				sum += 6
-			case '5':
-				sum += 5
-			case '4':
-				sum += 4
-			case '3':
-				sum += 3
-			case '2':
-				sum += 2
-			case '1', 'r', 'n', 'b', 'k', 'q', 'p', 'R', 'N', 'B', 'K', 'Q', 'P':
-				sum += 1
-			default:
-				return board, errors.New("Invalid FEN")
-			}
-		}
-	}
-
-	j := 0
-	var i int
-	//Now I realize the power of closures ;)
-	fillEmptySpaces := func(x int) {
-		for ; j < x; j++ {
-			board[9-i][9-j] = 0
-		}
-	}
-
-	//place pieces on the board
-	for i, rank := range ranks {
-		for _, runeVal := range rank {
-			switch runeVal {
-			case '8':
-				fillEmptySpaces(8)
-			case '7':
-				fillEmptySpaces(7)
-			case '6':
-				fillEmptySpaces(6)
-			case '5':
-				fillEmptySpaces(5)
-			case '4':
-				fillEmptySpaces(4)
-			case '3':
-				fillEmptySpaces(3)
-			case '2':
-				fillEmptySpaces(2)
-			case '1':
-				fillEmptySpaces(1)
-			default:
-				board[9-i][9-j] = pieceMap[runeVal]
-				j++
-			}
-		}
-	}
-
-	/*
-		<Side to move> ::= {'w' | 'b'}
-	*/
-
-	sideToMove := components[1]
-	if len(sideToMove) != 1 {
-		return board, errors.New("Invalid FEN")
-	} else if side := sideToMove[0]; side != 'w' || side != 'b' {
-		return board, errors.New("Invalid FEN")
-	} else if isBlackKingInCheck := IsKingInCheck(Black, board); side == 'w' && isBlackKingInCheck {
-		return board, errors.New("Invalid FEN")
-	} else if isWhiteKingInCheck := IsKingInCheck(White, board); side == 'b' && isWhiteKingInCheck {
-		return board, errors.New("Invalid FEN")
-	} else if isWhiteKingInCheck && isBlackKingInCheck {
-		return board, errors.New("Invalid FEN")
-	}
-
-	/*
-		<Castling ability> ::= '-' | ['K'] ['Q'] ['k'] ['q'] (1..4)
-	*/
-	castlingAbility := components[2]
-
-	if cLength := len(castlingAbility); cLength >= 1 && cLength <= 4 {
-		encounter := map[rune]bool{
-			'k': false,
-			'K': false,
-			'q': false,
-			'Q': false,
-		}
-		for _, val := range castlingAbility {
-			switch val {
-			case '_':
-				if cLength != 1 {
-					return board, errors.New("Invalid FEN")
-				}
-			case 'K':
-				if encounter['K'] || board[2][5] != pieceMap['K'] || board[2][2] != pieceMap['R'] {
-					return board, errors.New("Invalid FEN")
-				}
-				encounter['K'] = true
-			case 'Q':
-				if encounter['Q'] || board[2][5] != pieceMap['K'] || board[2][9] != pieceMap['R'] {
-					return board, errors.New("Invalid FEN")
-				}
-				encounter['Q'] = true
-			case 'k':
-				if encounter['k'] || board[9][5] != pieceMap['k'] || board[9][2] != pieceMap['r'] {
-					return board, errors.New("Invalid FEN")
-				}
-				encounter['k'] = true
-			case 'q':
-				if encounter['q'] || board[9][5] != pieceMap['k'] || board[9][9] != pieceMap['r'] {
-					return board, errors.New("Invalid FEN")
-				}
-				encounter['q'] = true
-			default:
-				return board, errors.New("Invalid FEN")
-			}
-		}
-	} else {
-		return board, errors.New("Invalid FEN")
-	}
-
-	/*
-		<En passant target square> ::= '-' | <epsquare>
-		<epsquare>   ::= <fileLetter> <eprank>
-		<fileLetter> ::= 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h'
-		<eprank>     ::= '3' | '6'
-	*/
-
-	enPassantTargetSquare := components[3]
-	eLength := len(enPassantTargetSquare)
-
-	if eLength == 1 {
-		if enPassantTargetSquare[0] != '-' {
-			return board, errors.New("Invalid FEN")
-		}
-	} else if eLength == 2 {
-		f1, f2 := false, false
-		validate := func(algNotation string, pawnType rune) bool {
-			pos, err := getPos(algNotation)
-			if err != nil || board[pos.x][pos.y] != pieceMap[pawnType] {
-				return true
-			}
-			return false
-		}
-		switch enPassantTargetSquare {
-		case "a3":
-			f1 = validate("b4", 'p')
-		case "b3":
-			f1 = validate("a4", 'p')
-			f2 = validate("c4", 'p')
-		case "c3":
-			f1 = validate("b4", 'p')
-			f2 = validate("d4", 'p')
-		case "d3":
-			f1 = validate("c4", 'p')
-			f2 = validate("e4", 'p')
-		case "e3":
-			f1 = validate("d4", 'p')
-			f2 = validate("f4", 'p')
-		case "f3":
-			f1 = validate("e4", 'p')
-			f2 = validate("f4", 'p')
-		case "g3":
-			f1 = validate("f4", 'p')
-			f2 = validate("h4", 'p')
-		case "a6":
-			f1 = validate("b5", 'p')
-		case "b6":
-			f1 = validate("a5", 'P')
-			f2 = validate("c5", 'P')
-		case "c6":
-			f1 = validate("b5", 'P')
-			f2 = validate("d5", 'P')
-		case "d6":
-			f1 = validate("c5", 'P')
-			f2 = validate("e5", 'P')
-		case "e6":
-			f1 = validate("d5", 'P')
-			f2 = validate("f5", 'P')
-		case "f6":
-			f1 = validate("e5", 'P')
-			f2 = validate("g5", 'P')
-		case "g6":
-			f1 = validate("f5", 'P')
-			f2 = validate("h5", 'P')
-		case "h6":
-			f1 = validate("g5", 'P')
-		default:
-			f1, f2 = true, true
-		}
-		if f1 || f2 {
-			return board, errors.New("Invalid FEN")
-		}
-	} else {
-		return board, errors.New("Invalid FEN")
-	}
-
-	/*
-		<Halfmove Clock> ::= <digit> {<digit>}
-		<digit> ::= '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
-	*/
-	halfMoveClock := components[4]
-	if len(halfMoveClock) < 1 {
-		return board, errors.New("Invalid FEN")
-	} else {
-		for _, val := range halfMoveClock {
-			if !unicode.IsDigit(val) {
-				return board, errors.New("Invalid FEN")
-			}
-		}
-	}
-
-	/*
-		<Fullmove counter> ::= <digit19> {<digit>}
-		<digit19> ::= '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9'
-		<digit>   ::= '0' | <digit19>
-	*/
-
-	fullMoveCounter := components[5]
-	fLength := len(fullMoveCounter)
-
-	if fLength < 1 {
-		return board, errors.New("Invalid FEN")
-	}
-	switch fullMoveCounter[0] {
-	case '1', '2', '3', '4', '5', '6', '7', '8', '9':
-	default:
-		return board, errors.New("Invalid FEN")
-	}
-	for _, val := range fullMoveCounter[1:] {
-		switch val {
-		case '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
-		default:
-			return board, errors.New("Invalid FEN")
-		}
-	}
-	return board, nil
-}
-
 func IsKingInCheck(kingColor Color, b Board) bool {
 	var king, enemyQueen, enemyRook, enemyPawn, enemyBishop, enemyKnight int
 	if kingColor == White {
-		king = 4
-		enemyQueen = 12
-		enemyRook = 8
-		enemyBishop = 10
-		enemyPawn = 7
-		enemyKnight = 9
+		king = pieceMap['K']
+		enemyQueen = pieceMap['q']
+		enemyRook = pieceMap['r']
+		enemyBishop = pieceMap['b']
+		enemyPawn = pieceMap['p']
+		enemyKnight = pieceMap['n']
 
 	} else {
-		king = 11
-		enemyQueen = 5
-		enemyRook = 1
-		enemyPawn = 6
-		enemyBishop = 3
-		enemyKnight = 2
+		king = pieceMap['k']
+		enemyQueen = pieceMap['Q']
+		enemyRook = pieceMap['R']
+		enemyPawn = pieceMap['P']
+		enemyBishop = pieceMap['B']
+		enemyKnight = pieceMap['N']
 	}
 
 	pos, err := findPiecePos(king, b)
