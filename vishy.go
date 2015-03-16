@@ -103,8 +103,11 @@ func NewBoardStateFromFen(fen string) (BoardState, error) {
 		for _, runeVal := range rank {
 			//Now I realize the power of closures ;)
 			fillEmptySpaces := func(x int) {
-				for ; j < x; j++ {
+				m := x
+				for m > 0 {
 					board[9-i][9-j] = 0
+					m--
+					j++
 				}
 			}
 			switch runeVal {
@@ -209,61 +212,56 @@ func NewBoardStateFromFen(fen string) (BoardState, error) {
 			return throwError()
 		}
 	} else if eLength == 2 {
-		f1, f2 := false, false
+		f1 := false
 		validate := func(algNotation string, pawnType rune) bool {
+			var expectedSide rune
+			if unicode.IsUpper(pawnType) {
+				expectedSide = 'b'
+			} else {
+				expectedSide = 'w'
+			}
+
 			pos, err := getPos(algNotation)
-			if err != nil || board[pos.x][pos.y] != pieceMap[pawnType] {
+			if err != nil || expectedSide != rune(sideToMove[0]) || board[pos.x][pos.y] != pieceMap[pawnType] || board[pos.x-1][pos.y] != 0 || board[pos.x-2][pos.y] != 0 {
 				return true
 			}
 			return false
 		}
 		switch enPassantTargetSquare {
 		case "a3":
-			f1 = validate("b4", 'p')
+			f1 = validate("a4", 'P')
 		case "b3":
-			f1 = validate("a4", 'p')
-			f2 = validate("c4", 'p')
+			f1 = validate("b4", 'P')
 		case "c3":
-			f1 = validate("b4", 'p')
-			f2 = validate("d4", 'p')
+			f1 = validate("c4", 'P')
 		case "d3":
-			f1 = validate("c4", 'p')
-			f2 = validate("e4", 'p')
+			f1 = validate("d4", 'P')
 		case "e3":
-			f1 = validate("d4", 'p')
-			f2 = validate("f4", 'p')
+			f1 = validate("e4", 'P')
 		case "f3":
-			f1 = validate("e4", 'p')
-			f2 = validate("f4", 'p')
+			f1 = validate("f4", 'P')
 		case "g3":
-			f1 = validate("f4", 'p')
-			f2 = validate("h4", 'p')
+			f1 = validate("g4", 'P')
 		case "a6":
-			f1 = validate("b5", 'p')
+			f1 = validate("a5", 'p')
 		case "b6":
-			f1 = validate("a5", 'P')
-			f2 = validate("c5", 'P')
+			f1 = validate("b5", 'p')
 		case "c6":
-			f1 = validate("b5", 'P')
-			f2 = validate("d5", 'P')
+			f1 = validate("c5", 'p')
 		case "d6":
-			f1 = validate("c5", 'P')
-			f2 = validate("e5", 'P')
+			f1 = validate("d5", 'p')
 		case "e6":
-			f1 = validate("d5", 'P')
-			f2 = validate("f5", 'P')
+			f1 = validate("e5", 'p')
 		case "f6":
-			f1 = validate("e5", 'P')
-			f2 = validate("g5", 'P')
+			f1 = validate("f5", 'p')
 		case "g6":
-			f1 = validate("f5", 'P')
-			f2 = validate("h5", 'P')
+			f1 = validate("g5", 'p')
 		case "h6":
-			f1 = validate("g5", 'P')
+			f1 = validate("h5", 'p')
 		default:
-			f1, f2 = true, true
+			f1 = true
 		}
-		if f1 || f2 {
+		if f1 {
 			return throwError()
 		}
 	} else {

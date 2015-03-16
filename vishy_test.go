@@ -4,7 +4,7 @@ import "testing"
 
 func TestFENToBoardStateValidCases(t *testing.T) {
 	board2 := NewBoard()
-	board2[5][5] = pieceMap['p']
+	board2[5][5] = pieceMap['P']
 	board2[3][5] = 0
 	cases := []struct {
 		in   string
@@ -37,6 +37,7 @@ func TestFENToBoardStateValidCases(t *testing.T) {
 		got, err := NewBoardStateFromFen(c.in)
 		if err != nil {
 			t.Errorf("in: %s\n error: %s\n", c.in, err)
+			continue
 		}
 		if got != c.want {
 			t.Errorf("in: %s\n want: %+v\n, got: %+v\n", c.in, c.want, got)
