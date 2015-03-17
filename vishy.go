@@ -103,10 +103,9 @@ func NewBoardStateFromFen(fen string) (BoardState, error) {
 		for _, runeVal := range rank {
 			//Now I realize the power of closures ;)
 			fillEmptySpaces := func(x int) {
-				m := x
-				for m > 0 {
+				for x > 0 {
 					board[9-i][9-j] = 0
-					m--
+					x--
 					j++
 				}
 			}
@@ -141,13 +140,88 @@ func NewBoardStateFromFen(fen string) (BoardState, error) {
 	sideToMove := components[1]
 	if len(sideToMove) != 1 {
 		return throwError()
-	} else if side := sideToMove[0]; side != 'w' && side != 'b' {
+	}
+
+	side := sideToMove[0]
+	if side != 'w' && side != 'b' {
 		return throwError()
-	} else if isBlackKingInCheck := IsKingInCheck(Black, board); side == 'w' && isBlackKingInCheck {
+	}
+
+	blackCheckMap, err := GetCheckingPosVsPieceMap(Black, board)
+	if err != nil {
 		return throwError()
-	} else if isWhiteKingInCheck := IsKingInCheck(White, board); side == 'b' && isWhiteKingInCheck {
+	}
+	bcmLen := len(blackCheckMap)
+	isBlackKingInCheck := bcmLen != 0
+
+	whiteCheckMap, err := GetCheckingPosVsPieceMap(White, board)
+	if err != nil {
 		return throwError()
-	} else if isWhiteKingInCheck && isBlackKingInCheck {
+	}
+	wcmLen := len(whiteCheckMap)
+	isWhiteKingInCheck := wcmLen != 0
+
+	if isBlackKingInCheck && isWhiteKingInCheck {
+		return throwError()
+	}
+
+	/*
+		Active color is checked less than 3 times; in case of 2 that it is never pawn+(pawn, bishop, knight),
+		bishop+bishop, knight+knight
+	*/
+
+	if side == 'w' {
+		if isBlackKingInCheck {
+			return throwError()
+		}
+
+		if wcmLen >= 3 {
+			return throwError()
+		} else if wcmLen == 2 {
+			var pawnCount, bishopCount, knightCount int
+			for _, v := range whiteCheckMap {
+				switch v {
+				case 'p':
+					pawnCount++
+				case 'b':
+					bishopCount++
+				case 'n':
+					knightCount++
+				}
+			}
+			if pawnCount == 2 || (pawnCount == 1 && (bishopCount == 1 || knightCount == 1)) || bishopCount == 2 || knightCount == 2 {
+				return throwError()
+			}
+		}
+	} else {
+		if isWhiteKingInCheck {
+			return throwError()
+		}
+		if bcmLen >= 3 {
+			return throwError()
+		} else if bcmLen == 2 {
+			var pawnCount, bishopCount, knightCount int
+			for _, v := range whiteCheckMap {
+				switch v {
+				case 'P':
+					pawnCount++
+				case 'B':
+					bishopCount++
+				case 'N':
+					knightCount++
+				}
+			}
+			if pawnCount == 2 || (pawnCount == 1 && (bishopCount == 1 || knightCount == 1)) || bishopCount == 2 || knightCount == 2 {
+				return throwError()
+			}
+		}
+	}
+
+	if side == 'b' && isWhiteKingInCheck {
+		return throwError()
+	}
+
+	if isWhiteKingInCheck && isBlackKingInCheck {
 		return throwError()
 	}
 
@@ -227,6 +301,7 @@ func NewBoardStateFromFen(fen string) (BoardState, error) {
 			}
 			return false
 		}
+
 		switch enPassantTargetSquare {
 		case "a3":
 			f1 = validate("a4", 'P')
@@ -346,6 +421,16 @@ var pieceMap = map[rune]int{
 	'q': 12,
 }
 
+var pieceConstMap = reverseMap(pieceMap)
+
+func reverseMap(m map[rune]int) map[int]rune {
+	n := make(map[int]rune)
+	for k, v := range m {
+		n[v] = k
+	}
+	return n
+}
+
 func NewBoard() Board {
 	return [12][12]int{
 		[12]int{99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99, 99},
@@ -413,8 +498,10 @@ func getPos(algebNotation string) (Pos, error) {
 
 	return pos, nil
 }
-func IsKingInCheck(kingColor Color, b Board) bool {
+
+func GetCheckingPosVsPieceMap(kingColor Color, b Board) (map[Pos]rune, error) {
 	var king, enemyQueen, enemyRook, enemyPawn, enemyBishop, enemyKnight int
+	var result map[Pos]rune
 	if kingColor == White {
 		king = pieceMap['K']
 		enemyQueen = pieceMap['q']
@@ -434,12 +521,22 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 
 	pos, err := findPiecePos(king, b)
 	if err != nil {
-		panic(err)
+		return result, err
 	}
 
 	//check for pawn check
-	if (kingColor == White && (b[pos.x+1][pos.y-1] == enemyPawn || b[pos.x+1][pos.y+1] == enemyPawn)) || (kingColor == Black && (b[pos.x-1][pos.y-1] == enemyPawn || b[pos.x-1][pos.y+1] == enemyPawn)) {
-		return true
+	checkForPiece := func(x int, y int, piece int) {
+		if b[x][y] == piece {
+			result[Pos{x, y}] = pieceConstMap[piece]
+		}
+	}
+
+	if kingColor == White {
+		checkForPiece(pos.x+1, pos.y-1, enemyPawn)
+		checkForPiece(pos.x+1, pos.y+1, enemyPawn)
+	} else {
+		checkForPiece(pos.x-1, pos.y-1, enemyPawn)
+		checkForPiece(pos.x-1, pos.y+1, enemyPawn)
 	}
 
 	var i, piece int
@@ -451,7 +548,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 		if piece == 99 {
 			break
 		} else if piece == enemyQueen || piece == enemyRook {
-			return true
+			result[Pos{i, pos.y}] = pieceConstMap[piece]
 		} else if piece != 0 {
 			break
 		}
@@ -465,7 +562,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 		if piece == 99 {
 			break
 		} else if piece == enemyQueen || piece == enemyRook {
-			return true
+			result[Pos{i, pos.y}] = pieceConstMap[piece]
 		} else if piece != 0 {
 			break
 		}
@@ -479,7 +576,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 		if piece == 99 {
 			break
 		} else if piece == enemyQueen || piece == enemyRook {
-			return true
+			result[Pos{pos.x, i}] = pieceConstMap[piece]
 		} else if piece != 0 {
 			break
 		}
@@ -493,7 +590,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 		if piece == 99 {
 			break
 		} else if piece == enemyQueen || piece == enemyRook {
-			return true
+			result[Pos{pos.x, i}] = pieceConstMap[piece]
 		} else if piece != 0 {
 			break
 		}
@@ -507,7 +604,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 		if piece == 99 {
 			break
 		} else if piece == enemyBishop || piece == enemyQueen {
-			return true
+			result[Pos{i, j}] = pieceConstMap[piece]
 		} else if piece != 0 {
 			break
 		}
@@ -522,7 +619,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 		if piece == 99 {
 			break
 		} else if piece == enemyBishop || piece == enemyQueen {
-			return true
+			result[Pos{i, j}] = pieceConstMap[piece]
 		} else if piece != 0 {
 			break
 		}
@@ -537,7 +634,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 		if piece == 99 {
 			break
 		} else if piece == enemyBishop || piece == enemyQueen {
-			return true
+			result[Pos{i, j}] = pieceConstMap[piece]
 		} else if piece != 0 {
 			break
 		}
@@ -552,7 +649,7 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 		if piece == 99 {
 			break
 		} else if piece == enemyBishop || piece == enemyQueen {
-			return true
+			result[Pos{i, j}] = pieceConstMap[piece]
 		} else if piece != 0 {
 			break
 		}
@@ -562,10 +659,11 @@ func IsKingInCheck(kingColor Color, b Board) bool {
 
 	//move like a knight
 	i, j = pos.x, pos.y
-	if b[i+2][j-1] == enemyKnight || b[i+2][j+1] == enemyKnight || b[i-2][j-1] == enemyKnight || b[i-2][j+1] == enemyKnight {
-		return true
-	}
-	return false
+	checkForPiece(i+2, j-1, enemyKnight)
+	checkForPiece(i+2, j+1, enemyKnight)
+	checkForPiece(i-2, j-1, enemyKnight)
+	checkForPiece(i-2, j+1, enemyKnight)
+	return result, nil
 }
 
 func findPiecePos(piece int, b Board) (Pos, error) {
