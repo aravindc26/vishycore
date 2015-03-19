@@ -30,6 +30,16 @@ func NewBoardState() BoardState {
 	}
 }
 
+func doesPawnExistsInEndRanks(board Board) bool {
+	for j := 9; j >= 2; j-- {
+		if board[2][j] == pieceMap['p'] || board[2][j] == pieceMap['P'] ||
+			board[9][j] == pieceMap['P'] || board[9][j] == pieceMap['P'] {
+			return true
+		}
+	}
+	return false
+}
+
 func NewBoardStateFromFen(fen string) (BoardState, error) {
 	var boardState BoardState
 	throwError := func() (BoardState, error) {
@@ -97,6 +107,20 @@ func NewBoardStateFromFen(fen string) (BoardState, error) {
 		}
 	}
 
+	pieceCountMap := map[rune]int{
+		'p': 0,
+		'P': 0,
+		'r': 0,
+		'R': 0,
+		'b': 0,
+		'B': 0,
+		'n': 0,
+		'N': 0,
+		'q': 0,
+		'Q': 0,
+		'k': 0,
+		'K': 0,
+	}
 	//place pieces on the board
 	for i, rank := range ranks {
 		j := 0
@@ -127,10 +151,42 @@ func NewBoardStateFromFen(fen string) (BoardState, error) {
 			case '1':
 				fillEmptySpaces(1)
 			default:
+				pieceCountMap[runeVal]++
 				board[9-i][9-j] = pieceMap[runeVal]
 				j++
 			}
 		}
+	}
+
+	//pawn related validations
+
+	if pieceCountMap['p'] > 8 || pieceCountMap['P'] > 8 {
+		return throwError()
+	}
+	if pieceCountMap['k'] != 1 || pieceCountMap['K'] != 1 {
+		return throwError()
+	}
+
+	if doesPawnExistsInEndRanks(board) {
+		return throwError()
+	}
+
+	max := func(a int, b int) int {
+		if a >= b {
+			return a
+		} else {
+			return b
+		}
+	}
+
+	blackExtraPieces := max(0, pieceCountMap['q']-1) + max(0, pieceCountMap['r']-2) + max(0, pieceCountMap['b']-2) + max(0, pieceCountMap['n']-2)
+	if blackExtraPieces > 8-pieceCountMap['p'] {
+		return throwError()
+	}
+
+	whiteExtraPieces := max(0, pieceCountMap['Q']-1) + max(0, pieceCountMap['R']-2) + max(0, pieceCountMap['B']-2) + max(0, pieceCountMap['N']-2)
+	if whiteExtraPieces > 8-pieceCountMap['P'] {
+		return throwError()
 	}
 
 	/*
